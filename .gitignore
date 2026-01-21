@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+*.node
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Recordings and media (large files)
+recordings/
+*.mp4
+*.wav
+*.jpg
+*.jpeg
+*.png
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# TypeScript
+*.tsbuildinfo
+
+# Vite
+*.local
+
+# Native addon build artifacts
+Release/
+Debug/
+*.o
+*.a
+*.dylib
+*.so
+*.so.*
+
+# Keep SDK libraries (override above)
+!server/sdk/lib/*.so*

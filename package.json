@@ -1,0 +1,18 @@
+{
+  "name": "obsbot-remote",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OBSBOT remote control server and client monorepo",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:client": "npm run dev -w client",
+    "dev:server": "npm run dev -w server",
+    "build": "npm run build --workspaces --if-present",
+    "build:client": "npm run build -w client",
+    "build:server": "npm run build -w server"
+  }
+}

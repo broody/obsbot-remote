@@ -1,0 +1,29 @@
+{
+  "name": "obsbot-server",
+  "version": "1.0.0",
+  "description": "OBSBOT Camera Capture and Control Server",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "node-gyp rebuild && tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc-watch --onSuccess \"node dist/index.js\"",
+    "install": "node-gyp rebuild"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^5.2.1",
+    "node-addon-api": "^7.1.0",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.11.24",
+    "@types/ws": "^8.5.10",
+    "node-gyp": "^10.0.1",
+    "tsc-watch": "^6.0.4",
+    "typescript": "^5.3.3"
+  }
+}

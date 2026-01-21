@@ -1,0 +1,4 @@
+services:
+  mediamtx:
+    image: bluenviron/mediamtx
+    network_mode: host
