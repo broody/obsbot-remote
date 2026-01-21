@@ -2,7 +2,7 @@
 
 :root {
   --bg-primary: #0a0a0c;
-  --accent: #3b82f6;
+  --accent: #06b6d4;
   --success: #10b981;
   --warning: #f59e0b;
 
@@ -20,17 +20,27 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
   user-select: none;
   -webkit-user-select: none;
+  touch-action: manipulation;
+  overscroll-behavior: none;
 }
 
 /* Custom scrollbar matching obsbot-controller */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 5px;
+  width: 4px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
@@ -53,4 +63,27 @@ body {
   }
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* Mobile touch improvements */
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 0.5rem center;
+  background-repeat: no-repeat;
+  background-size: 1.5em 1.5em;
+  padding-right: 2.5rem;
+}
+
+/* Safe area for notched devices */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-bottom {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+}
+
+/* Prevent pull-to-refresh */
+html {
+  overscroll-behavior-y: contain;
 }
