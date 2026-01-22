@@ -6,6 +6,41 @@ export class GStreamerService {
   private gstProcess: ChildProcess | null = null;
   private recordingsDir = path.join(process.cwd(), 'recordings');
 
+  // Detect if running on NVIDIA Jetson (L4T)
+  private isJetson = fs.existsSync('/etc/nv_tegra_release');
+
+  private get encoders() {
+    return this.isJetson
+      ? {
+          h264: 'nvv4l2h264enc',
+          h265: 'nvv4l2h265enc',
+          scaler: 'nvvidconv',
+          jpegdec: 'nvjpegdec',
+          // Jetson nvv4l2 encoders expect bitrate in bps
+          bitrateMultiplier: 1000,
+          presetProp: 'preset-level',
+          h264Preset: '1', // 1 = UltraFast/LowLatency
+          h265Preset: '1',
+          // Jetson hardware memory caps
+          hwCaps: 'video/x-raw(memory:NVMM)',
+          swCaps: 'video/x-raw',
+        }
+      : {
+          h264: 'nvh264enc',
+          h265: 'nvh265enc',
+          scaler: 'videoscale',
+          jpegdec: 'jpegdec',
+          // Desktop nvh encoders expect bitrate in kbps
+          bitrateMultiplier: 1,
+          presetProp: 'preset',
+          h264Preset: 'low-latency',
+          h265Preset: 'hq',
+          // Desktop uses standard system memory
+          hwCaps: 'video/x-raw',
+          swCaps: 'video/x-raw',
+        };
+  }
+
   constructor() {
     this.ensureDirectories();
   }
@@ -60,10 +95,11 @@ export class GStreamerService {
     // Note: GStreamer splitmuxsink doesn't support strftime-style filenames directly
     // in the location property via gst-launch-1.0. We use indexed naming for now.
 
+    const { encoders } = this;
     const args = [
       '-e', // Send EOS on interrupt to finalize files
 
-      // Video Source: v4l2 capture -> mjpeg decode -> convert
+      // Video Source: v4l2 capture -> mjpeg decode -> hardware conversion
       'v4l2src',
       `device=${options.videoDevice}`,
       '!',
@@ -73,9 +109,11 @@ export class GStreamerService {
       'max-size-buffers=30',
       'name=v_src_q',
       '!',
-      'jpegdec',
+      encoders.jpegdec,
       '!',
-      'videoconvert',
+      this.isJetson ? 'nvvidconv' : 'videoconvert',
+      '!',
+      encoders.hwCaps,
       '!',
       'tee',
       'name=vtee',
@@ -103,10 +141,11 @@ export class GStreamerService {
       'queue',
       'max-size-buffers=30',
       '!',
-      'nvh265enc',
-      'preset=hq',
-      'bitrate=15000',
-      'gop-size=60',
+      encoders.h265,
+      `${encoders.presetProp}=${encoders.h265Preset}`,
+      `bitrate=${15000 * encoders.bitrateMultiplier}`,
+      this.isJetson ? 'control-rate=1' : 'gop-size=60', // control-rate=1 is CBR on Jetson
+      this.isJetson ? 'iframeinterval=60' : '',
       '!',
       'h265parse',
       '!',
@@ -155,15 +194,15 @@ export class GStreamerService {
       'queue',
       'max-size-buffers=30',
       '!',
-      'videoscale',
+      encoders.scaler,
       '!',
-      'video/x-raw,width=1920,height=1080',
+      `${encoders.hwCaps},width=1920,height=1080`,
       '!',
-      'nvh264enc',
-      'preset=low-latency',
-      'zerolatency=true',
-      'bitrate=3000',
-      'gop-size=30',
+      encoders.h264,
+      `${encoders.presetProp}=${encoders.h264Preset}`,
+      this.isJetson ? 'insert-sps-pps=true' : 'zerolatency=true',
+      `bitrate=${3000 * encoders.bitrateMultiplier}`,
+      this.isJetson ? 'iframeinterval=30' : 'gop-size=30',
       '!',
       'h264parse',
       '!',
@@ -182,9 +221,9 @@ export class GStreamerService {
       '!',
       'video/x-raw,framerate=1/10',
       '!', // One frame every 10 seconds
-      'videoscale',
+      encoders.scaler,
       '!',
-      'video/x-raw,width=1920,height=1080',
+      `${encoders.swCaps},width=1920,height=1080`, // Convert back to CPU memory for jpegenc
       '!',
       'videoconvert',
       '!',
