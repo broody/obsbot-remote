@@ -13,6 +13,10 @@
     "dev:server": "npm run dev -w server",
     "build": "npm run build --workspaces --if-present",
     "build:client": "npm run build -w client",
-    "build:server": "npm run build -w server"
+    "build:server": "npm run build -w server",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.8.1"
   }
 }

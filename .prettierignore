@@ -1,0 +1,9 @@
+node_modules
+dist
+build
+recordings
+sdk
+*.so*
+*.node
+package-lock.json
+pnpm-lock.yaml

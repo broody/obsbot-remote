@@ -124,10 +124,10 @@ Open http://localhost:5173 in your browser.
 
 ### REST Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/status` | GET | Get camera status and recording segments |
-| `/api/command` | POST | Send camera command |
+| Endpoint       | Method | Description                              |
+| -------------- | ------ | ---------------------------------------- |
+| `/api/status`  | GET    | Get camera status and recording segments |
+| `/api/command` | POST   | Send camera command                      |
 
 ### Commands
 
