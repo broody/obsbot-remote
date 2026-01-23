@@ -12,17 +12,19 @@ export class GStreamerService {
   private get encoders() {
     return this.isJetson
       ? {
-          h264: 'nvv4l2h264enc',
-          h265: 'nvv4l2h265enc',
-          scaler: 'nvvidconv',
-          jpegdec: 'nvjpegdec',
-          // Jetson nvv4l2 encoders expect bitrate in bps
-          bitrateMultiplier: 1000,
-          presetProp: 'preset-level',
-          h264Preset: '1', // 1 = UltraFast/LowLatency
-          h265Preset: '1',
-          // Jetson hardware memory caps
-          hwCaps: 'video/x-raw(memory:NVMM)',
+          // Jetson Orin Nano does not have NVENC hardware encoder
+          // Use software encoders (x264enc/x265enc)
+          h264: 'x264enc',
+          h265: 'x265enc',
+          scaler: 'videoscale',
+          jpegdec: 'jpegdec',
+          // Software encoders expect bitrate in kbps
+          bitrateMultiplier: 1,
+          presetProp: 'speed-preset',
+          h264Preset: 'ultrafast', // ultrafast for low latency
+          h265Preset: 'ultrafast',
+          // Software encoders use standard system memory
+          hwCaps: 'video/x-raw',
           swCaps: 'video/x-raw',
         }
       : {
@@ -55,10 +57,28 @@ export class GStreamerService {
     });
   }
 
-  public startCapture(options: { videoDevice: string; audioDevice: string; rtspUrl: string }) {
+  private checkRtspClientSinkAvailable(): boolean {
+    try {
+      const { execSync } = require('child_process');
+      execSync('gst-inspect-1.0 rtspclientsink', { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public startCapture(options: { videoDevice: string; audioDevice: string; rtspUrl: string; enableRtsp?: boolean }) {
     if (this.gstProcess) {
       console.warn('GStreamer capture already running');
       return;
+    }
+
+    // Check if rtspclientsink is available
+    const rtspAvailable = this.checkRtspClientSinkAvailable();
+    const enableRtsp = options.enableRtsp ?? rtspAvailable;
+
+    if (!rtspAvailable && enableRtsp) {
+      console.warn('[GStreamer] rtspclientsink not found. Install gstreamer1.0-rtsp package for live streaming.');
     }
 
     /**
@@ -99,11 +119,11 @@ export class GStreamerService {
     const args = [
       '-e', // Send EOS on interrupt to finalize files
 
-      // Video Source: v4l2 capture -> mjpeg decode -> hardware conversion
+      // Video Source: v4l2 capture -> mjpeg decode -> conversion
       'v4l2src',
       `device=${options.videoDevice}`,
       '!',
-      'image/jpeg,width=3840,height=2160,framerate=30/1',
+      'image/jpeg,width=1920,height=1080,framerate=30/1', // 1080p capture
       '!',
       'queue',
       'max-size-buffers=30',
@@ -111,7 +131,7 @@ export class GStreamerService {
       '!',
       encoders.jpegdec,
       '!',
-      this.isJetson ? 'nvvidconv' : 'videoconvert',
+      'videoconvert',
       '!',
       encoders.hwCaps,
       '!',
@@ -135,7 +155,7 @@ export class GStreamerService {
       'tee',
       'name=atee',
 
-      // -- OUTPUT 1: High-Quality Segments (HEVC 4K) --
+      // -- OUTPUT 1: High-Quality Segments (HEVC 1080p) --
       'vtee.',
       '!',
       'queue',
@@ -144,8 +164,7 @@ export class GStreamerService {
       encoders.h265,
       `${encoders.presetProp}=${encoders.h265Preset}`,
       `bitrate=${15000 * encoders.bitrateMultiplier}`,
-      this.isJetson ? 'control-rate=1' : 'gop-size=60', // control-rate=1 is CBR on Jetson
-      this.isJetson ? 'iframeinterval=60' : '',
+      this.isJetson ? 'key-int-max=60' : 'gop-size=60', // x265enc uses key-int-max
       '!',
       'h265parse',
       '!',
@@ -187,31 +206,35 @@ export class GStreamerService {
       'muxer-factory=wavenc',
       `location=${path.join(this.recordingsDir, 'audio/gst_%05d.wav')}`,
       'max-size-time=10000000000', // 10 seconds
+    ];
 
-      // -- OUTPUT 3: Live Stream (H.264 1080p) --
-      'vtee.',
-      '!',
-      'queue',
-      'max-size-buffers=30',
-      '!',
-      encoders.scaler,
-      '!',
-      `${encoders.hwCaps},width=1920,height=1080`,
-      '!',
-      encoders.h264,
-      `${encoders.presetProp}=${encoders.h264Preset}`,
-      this.isJetson ? 'insert-sps-pps=true' : 'zerolatency=true',
-      `bitrate=${3000 * encoders.bitrateMultiplier}`,
-      this.isJetson ? 'iframeinterval=30' : 'gop-size=30',
-      '!',
-      'h264parse',
-      '!',
-      'rtsp_sink.sink_0',
-      'rtspclientsink',
-      'name=rtsp_sink',
-      `location=${options.rtspUrl}`,
+    // -- OUTPUT 3: Live Stream (H.264 1080p) -- (Optional, requires rtspclientsink)
+    if (enableRtsp) {
+      args.push(
+        'vtee.',
+        '!',
+        'queue',
+        'max-size-buffers=30',
+        '!',
+        encoders.h264,
+        `${encoders.presetProp}=${encoders.h264Preset}`,
+        this.isJetson ? 'tune=zerolatency' : 'zerolatency=true',
+        `bitrate=${3000 * encoders.bitrateMultiplier}`,
+        this.isJetson ? 'key-int-max=30' : 'gop-size=30',
+        '!',
+        'h264parse',
+        '!',
+        'rtsp_sink.sink_0',
+        'rtspclientsink',
+        'name=rtsp_sink',
+        `location=${options.rtspUrl}`
+      );
+    } else {
+      console.log('[GStreamer] RTSP streaming disabled (rtspclientsink not available)');
+    }
 
-      // -- OUTPUT 4: Periodic Snapshots (JPEG 1080p) --
+    // -- OUTPUT 4: Periodic Snapshots (JPEG 1080p) --
+    args.push(
       'vtee.',
       '!',
       'queue',
@@ -219,11 +242,7 @@ export class GStreamerService {
       '!',
       'videorate',
       '!',
-      'video/x-raw,framerate=1/10',
-      '!', // One frame every 10 seconds
-      encoders.scaler,
-      '!',
-      `${encoders.swCaps},width=1920,height=1080`, // Convert back to CPU memory for jpegenc
+      'video/x-raw,framerate=1/10', // One frame every 10 seconds
       '!',
       'videoconvert',
       '!',
@@ -231,8 +250,8 @@ export class GStreamerService {
       'quality=85',
       '!',
       'multifilesink',
-      `location=${path.join(this.recordingsDir, 'snapshots/snap_%05d.jpg')}`,
-    ];
+      `location=${path.join(this.recordingsDir, 'snapshots/snap_%05d.jpg')}`
+    );
 
     console.log('Starting GStreamer with args:', args.join(' '));
 

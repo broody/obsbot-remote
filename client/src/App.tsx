@@ -560,7 +560,7 @@ const App: React.FC = () => {
             <div className="flex-1 relative bg-black rounded-3xl overflow-hidden border border-white/10 shadow-2xl group">
               {connected ? (
                 <iframe
-                  src={`http://${host}:8889/live`}
+                  src={`http://${host}:8890/live`}
                   className="w-full h-full border-none"
                   allow="autoplay; fullscreen"
                 />
@@ -698,7 +698,7 @@ const App: React.FC = () => {
           {/* Video Content */}
           {connected ? (
             <iframe
-              src={`http://${host}:8889/live`}
+              src={`http://${host}:8890/live`}
               className="w-full h-full border-none"
               allow="autoplay; fullscreen"
             />

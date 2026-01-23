@@ -5,7 +5,9 @@ import * as http from 'http';
 import { cameraService } from './services/camera';
 import { ffmpegService } from './services/ffmpeg';
 import { gstreamerService } from './services/gstreamer';
+import { gstreamerSimpleService } from './services/gstreamer-simple';
 import { segmentManager } from './services/segmentManager';
+import { segmentRenamer } from './services/segmentRenamer';
 import { sttService } from './services/stt';
 import * as dotenv from 'dotenv';
 
@@ -18,7 +20,7 @@ const RTSP_URL = process.env.RTSP_URL || 'rtsp://localhost:8554/live';
 const CAPTURE_SERVICE = process.env.CAPTURE_SERVICE || 'ffmpeg';
 
 // Select capture service
-const captureService = CAPTURE_SERVICE === 'gstreamer' ? gstreamerService : ffmpegService;
+const captureService = CAPTURE_SERVICE === 'gstreamer' ? gstreamerSimpleService : ffmpegService;
 
 // Express app for REST API
 const app = express();
@@ -99,6 +101,9 @@ server.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`  REST API: http://0.0.0.0:${PORT}/api/status`);
   console.log(`  Gimbal WS: ws://0.0.0.0:${PORT}/ws/gimbal`);
 
+  // Start segment renamer
+  segmentRenamer.start();
+
   // Start capture after a short delay
   setTimeout(() => {
     console.log(`Using capture service: ${CAPTURE_SERVICE}`);
@@ -114,6 +119,7 @@ server.listen(Number(PORT), '0.0.0.0', () => {
 process.on('SIGINT', () => {
   console.log('Shutting down...');
   captureService.stopCapture();
+  segmentRenamer.stop();
   cameraService.close();
   process.exit(0);
 });
