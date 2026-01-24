@@ -7,4 +7,9 @@ export default defineConfig({
   server: {
     host: true, // Expose to all network interfaces
   },
+  preview: {
+    host: true, // Expose to all network interfaces
+    port: 80,   // Run on port 80 for easy access
+    allowedHosts: ['obsbot.local'],
+  },
 });

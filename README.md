@@ -1,27 +1,27 @@
 # OBSBOT Remote
 
-A server-client system for remote control and live streaming of OBSBOT cameras. Stream 1080p video to multiple clients while simultaneously performing loop recording with AI-powered moment detection.
+A server-client system for remote control and live streaming of OBSBOT cameras. Stream 1080p video with audio to multiple clients via HLS while simultaneously performing loop recording in 30-second MP4 segments.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         OBSBOT Camera                           │
-│                    (USB: Video + Control)                       │
+│                 (USB: Video + Audio + Control)                  │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────────┐
 │                         Server                                   │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │ Native SDK  │  │   FFmpeg    │  │     Loop Recording      │  │
-│  │  (Camera    │  │  Pipeline   │  │  • 30s HEVC segments    │  │
-│  │  Control)   │  │             │  │  • 10-min rolling buf   │  │
-│  └─────────────┘  └──────┬──────┘  │  • AI moment detection  │  │
+│  │ Native SDK  │  │  GStreamer  │  │     Loop Recording      │  │
+│  │  (Camera    │  │   Pipeline  │  │  • 30s MP4 segments     │  │
+│  │  Control)   │  │             │  │  • H.264 + AAC          │  │
+│  └─────────────┘  └──────┬──────┘  │  • Rolling buffer       │  │
 │                          │         └─────────────────────────┘  │
 │                          ▼                                       │
 │              ┌───────────────────────┐                          │
-│              │  H.264 Live Stream    │◄── UDP/RTSP ──►MediaMTX  │
-│              │  (NVENC low-latency)  │                          │
+│              │  H.264 + AAC Stream   │◄──── RTSP ────►MediaMTX  │
+│              │  (x264enc + voaacenc) │                          │
 │              └───────────────────────┘                          │
 │                                                                  │
 │  REST API: /api/status, /api/command                            │
@@ -31,28 +31,37 @@ A server-client system for remote control and live streaming of OBSBOT cameras. 
 ┌──────────────────────────▼──────────────────────────────────────┐
 │                    Web Client (React)                            │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │ WebRTC View │  │  Gimbal     │  │   AI Tracking Controls  │  │
-│  │ (MediaMTX)  │  │  Joystick   │  │   Mode, Speed, Gestures │  │
+│  │  HLS Video  │  │  Gimbal     │  │   AI Tracking Controls  │  │
+│  │  (MediaMTX) │  │  Joystick   │  │   Mode, Speed, Gestures │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Features
 
-- **Live Streaming**: 1080p60 H.264 stream to 2-3 clients via WebRTC (MediaMTX)
+- **Live Streaming**: 1080p30 H.264 video with AAC audio via HLS (MediaMTX)
 - **Remote PTZ Control**: Real-time gimbal control with sub-100ms latency via WebSocket
 - **AI Tracking**: Full control over OBSBOT AI modes (Human, Group, Hand, Whiteboard, Desk)
-- **Loop Recording**: Continuous HEVC recording in 30-second segments with 10-minute rolling buffer
-- **Hardware Acceleration**: NVIDIA NVENC for encoding (HEVC for recording, H.264 for streaming)
+- **Loop Recording**: Continuous MP4 recording in 30-second segments with H.264 video and AAC audio
+- **Single Encode Architecture**: Encode once, use for both streaming and recording to minimize CPU load
+- **Cross-Platform**: Works on x86_64 with NVIDIA GPUs (nvh264enc) and ARM devices like Jetson Nano (x264enc)
 
 ## Requirements
 
-- Linux (tested on Ubuntu)
-- NVIDIA GPU with NVENC support
+- Linux (tested on Ubuntu 22.04 and Jetson Linux)
 - Node.js 18+
-- FFmpeg with NVENC support
-- [MediaMTX](https://github.com/bluenviron/mediamtx) for WebRTC relay
-- OBSBOT camera (Tiny 2, Meet 4K, etc.)
+- GStreamer 1.0 with the following plugins:
+  - `gstreamer1.0-plugins-base`
+  - `gstreamer1.0-plugins-good`
+  - `gstreamer1.0-plugins-bad`
+  - `gstreamer1.0-plugins-ugly`
+  - `gstreamer1.0-libav`
+  - `gstreamer1.0-rtsp` (for rtspclientsink)
+  - `gstreamer1.0-alsa` (for audio capture)
+  - `gstreamer1.0-x264` (software encoding) OR NVIDIA hardware encoding support
+- [MediaMTX](https://github.com/bluenviron/mediamtx) for RTSP to HLS transcoding
+- Docker and Docker Compose (for MediaMTX)
+- OBSBOT camera (Tiny 2 Lite, Meet 4K, etc.)
 
 ## Project Structure
 
@@ -70,45 +79,73 @@ obsbot-remote/
     │   ├── index.ts      # Express + WebSocket server
     │   ├── native/       # C++ OBSBOT SDK wrapper
     │   └── services/
-    │       ├── camera.ts       # Camera control service
-    │       ├── ffmpeg.ts       # FFmpeg pipeline
+    │       ├── camera.ts            # Camera control service
+    │       ├── gstreamer-simple.ts  # GStreamer pipeline (streaming + recording)
     │       ├── segmentManager.ts
     │       └── stt.ts
     ├── sdk/              # OBSBOT SDK (headers + libs)
+    ├── media_mtx/        # MediaMTX Docker config
     └── package.json
 ```
 
 ## Setup
 
-### 1. Install Dependencies
+### 1. Install System Dependencies
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  gstreamer1.0-tools \
+  gstreamer1.0-plugins-base \
+  gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad \
+  gstreamer1.0-plugins-ugly \
+  gstreamer1.0-libav \
+  gstreamer1.0-rtsp \
+  gstreamer1.0-alsa \
+  gstreamer1.0-x264 \
+  libgstreamer1.0-dev
+```
+
+**Jetson (ARM):**
+```bash
+# GStreamer should be pre-installed
+# Install additional plugins if needed:
+sudo apt-get install -y \
+  gstreamer1.0-rtsp \
+  gstreamer1.0-x264
+```
+
+### 2. Install Node Dependencies
 
 ```bash
 cd obsbot-remote
 npm install
 ```
 
-### 2. Build Native Addon
+### 3. Build Native Addon
 
 ```bash
 cd server
 npm run build:native
 ```
 
-### 3. Configure Environment
+### 4. Configure Environment
 
 ```bash
 cp server/env.example server/.env
 # Edit .env with your device paths
 ```
 
-### 4. Start MediaMTX
+### 5. Start MediaMTX
 
 ```bash
 cd server/media_mtx
 docker compose up -d
 ```
 
-### 5. Run
+### 6. Run
 
 ```bash
 # Terminal 1: Server
@@ -154,6 +191,26 @@ Real-time gimbal control:
 { "type": "gimbal-reset" }
 ```
 
+## How It Works
+
+The GStreamer pipeline captures video and audio from the OBSBOT camera, encodes them once, then uses tees to split the streams:
+
+1. **Video Path**: v4l2src → MJPEG decode → H.264 encode → tee
+   - Branch 1: RTSP streaming to MediaMTX
+   - Branch 2: MP4 recording (30s segments)
+
+2. **Audio Path**: alsasrc → AAC encode → tee
+   - Branch 1: RTSP streaming to MediaMTX
+   - Branch 2: MP4 recording (30s segments)
+
+3. **MediaMTX**: Receives H.264 + AAC via RTSP, transcodes to HLS for web browser playback
+
+This architecture ensures:
+- Single encode (efficient CPU usage)
+- Synchronized audio/video in both streaming and recording
+- Low latency streaming (~1-2 seconds)
+- Automatic 30-second segment files for easy review
+
 ## Configuration
 
 ### Environment Variables (server/.env)
@@ -161,9 +218,59 @@ Real-time gimbal control:
 ```env
 PORT=8080
 VIDEO_DEVICE=/dev/video0
-AUDIO_DEVICE=default
+# Use 'arecord -l' to find the ALSA audio device (hw:CARD,DEVICE format)
+AUDIO_DEVICE=hw:2,0
 RTSP_URL=rtsp://localhost:8554/live
+CAPTURE_SERVICE=gstreamer  # Options: ffmpeg, gstreamer
 ```
+
+**Finding your audio device:**
+```bash
+# List audio capture devices
+arecord -l
+
+# Output example:
+# card 2: Lite [OBSBOT Tiny 2 Lite], device 0: USB Audio [USB Audio]
+# Use: AUDIO_DEVICE=hw:2,0
+```
+
+## Troubleshooting
+
+### No video stream in web client
+
+1. Check GStreamer pipeline is running:
+   ```bash
+   sudo journalctl -u obsbot-server.service -f
+   ```
+
+2. Verify MediaMTX received the stream:
+   ```bash
+   curl http://localhost:9997/v3/paths/list
+   ```
+   Should show `"name":"live"` with `"ready":true`
+
+3. Test HLS endpoint directly:
+   ```bash
+   curl http://localhost:8890/live/
+   ```
+
+### Audio issues
+
+- If using systemd service, ensure `AUDIO_DEVICE` uses ALSA format (`hw:X,Y`) not PulseAudio format
+- Check available audio devices: `arecord -l`
+- Test audio capture: `gst-launch-1.0 alsasrc device=hw:2,0 ! fakesink`
+
+### Recording not working
+
+- Check recordings directory exists: `server/recordings/segments/`
+- Look for GStreamer errors in logs about splitmuxsink
+- Verify disk has space: `df -h`
+
+### Camera control not working
+
+- Check USB connection: `lsusb | grep OBSBOT`
+- Verify camera permissions: May need udev rules for non-root access
+- Check native addon built successfully: `ls server/build/Release/camera_addon.node`
 
 ## License
 

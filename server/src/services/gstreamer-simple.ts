@@ -73,79 +73,110 @@ export class GStreamerSimpleService {
       .replace(/\..+/, ''); // Format: YYYYMMDD_HHMMSS
 
     /**
-     * GStreamer Pipeline with Recording (Single Encode):
-     * - Video: v4l2 -> MJPEG decode -> H.264 encode ONCE -> tee
+     * GStreamer Pipeline for Streaming + Recording:
+     * - Video: v4l2 -> MJPEG decode -> H.264 encode -> tee
      *   - Branch 1: RTSP streaming
-     *   - Branch 2: MP4 segment recording
-     * This reduces CPU load by encoding only once instead of twice
+     *   - Branch 2: MP4 recording (30s segments)
+     * - Audio: ALSA -> AAC encode -> tee
+     *   - Branch 1: RTSP streaming
+     *   - Branch 2: MP4 recording
      */
     const args = [
       '-e', // Send EOS on interrupt
 
-      // Video Source: Capture, decode, and encode ONCE
+      // Video Source: Capture, decode, and encode
       'v4l2src',
       `device=${options.videoDevice}`,
       '!',
       'image/jpeg,width=1920,height=1080,framerate=30/1',
       '!',
-      'queue',
-      'max-size-buffers=30',
-      '!',
       'jpegdec',
       '!',
       'videoconvert',
       '!',
-      'video/x-raw',
-      '!',
 
-      // Single H.264 encoder (high quality)
+      // H.264 encoder
       encoders.h264,
       `${encoders.presetProp}=${encoders.h264Preset}`,
       this.isJetson ? 'tune=zerolatency' : 'zerolatency=true',
-      'bitrate=8000', // High quality for both streaming and recording
+      'bitrate=8000',
       this.isJetson ? 'key-int-max=30' : 'gop-size=30',
       this.isJetson ? 'bframes=0' : '',
       '!',
       'h264parse',
       'config-interval=-1',
       '!',
-
-      // Split encoded H.264 stream
       'tee',
-      'name=h264tee',
-      'allow-not-linked=true', // Allow branches to operate independently
+      'name=vtee',
+
+      // Audio Source: Capture and encode to AAC
+      'alsasrc',
+      `device=${options.audioDevice}`,
+      '!',
+      'audioconvert',
+      '!',
+      'audioresample',
+      '!',
+      'audio/x-raw,rate=48000,channels=2',
+      '!',
+      'voaacenc',
+      'bitrate=128000',
+      '!',
+      'aacparse',
+      '!',
+      'tee',
+      'name=atee',
 
       // Branch 1: RTSP streaming
-      'h264tee.',
+      'vtee.',
       '!',
       'queue',
       'max-size-buffers=1',
       'leaky=downstream',
       '!',
       'rtspclientsink',
+      'name=rtsp',
       `location=${options.rtspUrl}`,
       'latency=0',
       'protocols=tcp',
 
-      // Branch 2: Segment recording (larger queue to prevent frame drops)
-      'h264tee.',
+      'atee.',
       '!',
       'queue',
-      'max-size-buffers=200', // Larger buffer to handle disk write delays
-      'max-size-time=3000000000', // 3 seconds of buffering
-      'max-size-bytes=20971520', // 20MB buffer
+      'max-size-buffers=1',
+      'leaky=downstream',
+      '!',
+      'rtsp.',
+
+      // Branch 2: MP4 recording with splitmuxsink
+      'vtee.',
+      '!',
+      'queue',
+      'max-size-buffers=200',
+      '!',
+      'h264parse',
+      '!',
+      'video/x-h264,stream-format=avc,alignment=au',
       '!',
       'splitmuxsink',
-      'muxer-factory=mp4mux',
-      'async-finalize=true', // Don't block when finalizing segments
+      'name=split',
       `location=${path.join(this.recordingsDir, `segments/${timestamp}_%05d.mp4`)}`,
-      'max-size-time=30000000000', // 30 second segments
+      'max-size-time=30000000000',
+      'async-finalize=true',
+
+      'atee.',
+      '!',
+      'queue',
+      'max-size-buffers=200',
+      '!',
+      'split.audio_0',
     ].filter(arg => arg !== ''); // Remove empty args
 
-    console.log('Starting GStreamer pipeline with recording');
-    console.log('  - Single H.264 encode at 8Mbps (high quality)');
-    console.log('  - Live stream: RTSP -> MediaMTX');
-    console.log('  - Recordings: 30s MP4 segments');
+    console.log('Starting GStreamer pipeline for streaming + recording');
+    console.log('  - Video: H.264 encode at 8Mbps');
+    console.log('  - Audio: AAC encode at 128kbps');
+    console.log('  - Live stream: RTSP -> MediaMTX (video + audio)');
+    console.log('  - Recording: 30s MP4 segments (video + audio)');
     console.log('Command:', 'gst-launch-1.0', args.join(' '));
 
     this.gstProcess = spawn('gst-launch-1.0', args);

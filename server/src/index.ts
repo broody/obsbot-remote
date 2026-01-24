@@ -60,6 +60,38 @@ app.post('/api/command', async (req, res) => {
   }
 });
 
+// GET /api/download/:filename - Download a segment file
+app.get('/api/download/:filename', (req, res) => {
+  const { filename } = req.params;
+  const path = require('path');
+  const fs = require('fs');
+
+  // Determine directory based on file extension
+  const ext = path.extname(filename);
+  let filePath: string;
+
+  if (ext === '.mp4') {
+    filePath = path.join(process.cwd(), 'recordings', 'segments', filename);
+  } else if (ext === '.wav') {
+    filePath = path.join(process.cwd(), 'recordings', 'audio', filename);
+  } else {
+    return res.status(400).json({ error: 'Invalid file type' });
+  }
+
+  // Check if file exists
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  // Set headers for download
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Type', ext === '.mp4' ? 'video/mp4' : 'audio/wav');
+
+  // Stream the file
+  const fileStream = fs.createReadStream(filePath);
+  fileStream.pipe(res);
+});
+
 // ==================== HTTP + WebSocket Server ====================
 
 const server = http.createServer(app);

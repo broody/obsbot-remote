@@ -96,6 +96,8 @@ export class FFmpegService {
       // OUTPUT 3: Low-Latency Live Stream (H.264 for MediaMTX/ffplay)
       '-map',
       '0:v',
+      '-map',
+      '1:a',
       '-c:v',
       'h264_nvenc',
       '-preset',
@@ -112,6 +114,10 @@ export class FFmpegService {
       '1',
       '-pix_fmt',
       'yuv420p',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '128k',
       '-f',
       options.rtspUrl.startsWith('udp://') ? 'mpegts' : 'rtsp',
       options.rtspUrl.startsWith('udp://')
