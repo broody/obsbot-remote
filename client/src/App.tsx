@@ -84,6 +84,22 @@ const App: React.FC = () => {
     );
   };
 
+  const handleDownloadSegment = async (filename: string) => {
+    try {
+      const downloadUrl = `http://${host}:8080/api/download/${filename}`;
+
+      // Create a temporary anchor element to trigger download
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error('Failed to download segment:', error);
+    }
+  };
+
   // Desktop Tab Button
   const DesktopTabButton = ({
     id,
@@ -498,7 +514,11 @@ const App: React.FC = () => {
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 )}
-                <button className="p-2 hover:bg-emerald-500/20 text-zinc-400 hover:text-emerald-500 rounded-lg transition-colors">
+                <button
+                  onClick={() => handleDownloadSegment(seg.filename)}
+                  className="p-2 hover:bg-emerald-500/20 text-zinc-400 hover:text-emerald-500 rounded-lg transition-colors"
+                  title="Download clip"
+                >
                   <Save className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -560,7 +580,7 @@ const App: React.FC = () => {
             <div className="flex-1 relative bg-black rounded-3xl overflow-hidden border border-white/10 shadow-2xl group">
               {connected ? (
                 <iframe
-                  src={`http://${host}:8889/live`}
+                  src={`http://${host}:8890/live`}
                   className="w-full h-full border-none"
                   allow="autoplay; fullscreen"
                 />
@@ -698,7 +718,7 @@ const App: React.FC = () => {
           {/* Video Content */}
           {connected ? (
             <iframe
-              src={`http://${host}:8889/live`}
+              src={`http://${host}:8890/live`}
               className="w-full h-full border-none"
               allow="autoplay; fullscreen"
             />

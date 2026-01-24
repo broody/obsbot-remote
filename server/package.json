@@ -4,10 +4,10 @@
   "description": "OBSBOT Camera Capture and Control Server",
   "main": "dist/index.js",
   "scripts": {
-    "build": "node-gyp rebuild && tsc",
+    "build": "node scripts/prepare-libs.js && node-gyp rebuild && tsc",
     "start": "node dist/index.js",
     "dev": "tsc-watch --onSuccess \"node dist/index.js\"",
-    "install": "node-gyp rebuild"
+    "install": "node scripts/prepare-libs.js && node-gyp rebuild"
   },
   "dependencies": {
     "better-sqlite3": "^12.6.2",

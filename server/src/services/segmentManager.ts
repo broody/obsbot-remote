@@ -16,7 +16,7 @@ export class SegmentManager {
   private recordingsDir = path.join(process.cwd(), 'recordings');
   private segmentsDir = path.join(this.recordingsDir, 'segments');
   private audioDir = path.join(this.recordingsDir, 'audio');
-  private retentionBufferMs = 10 * 60 * 1000; // 10 minutes
+  private retentionBufferMs = 24 * 60 * 60 * 1000; // 24 hours
 
   constructor() {
     this.db = new Database(path.join(this.recordingsDir, 'metadata.db'));
@@ -126,30 +126,40 @@ export class SegmentManager {
     const now = Date.now();
     const cutoff = now - this.retentionBufferMs;
 
-    const expiredSegments = this.db
+    // Smart cleanup: Only delete oldest segments beyond retention window
+    // Delete one at a time to avoid deleting everything at once
+    const oldestSegment = this.db
       .prepare(
         `
-            SELECT filename, type FROM segments 
+            SELECT filename, type, timestamp FROM segments
             WHERE timestamp < ? AND keep = 0
+            ORDER BY timestamp ASC
+            LIMIT 1
         `
       )
-      .all(cutoff) as { filename: string; type: string }[];
+      .get(cutoff) as { filename: string; type: string; timestamp: number } | undefined;
 
-    expiredSegments.forEach((seg) => {
-      const dir = seg.type === 'video' ? this.segmentsDir : this.audioDir;
-      const filePath = path.join(dir, seg.filename);
+    if (!oldestSegment) {
+      // No segments to clean up
+      return;
+    }
 
-      try {
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-          // console.log(`Deleted expired segment: ${seg.filename}`);
-        }
+    const dir = oldestSegment.type === 'video' ? this.segmentsDir : this.audioDir;
+    const filePath = path.join(dir, oldestSegment.filename);
 
-        this.db.prepare('DELETE FROM segments WHERE filename = ?').run(seg.filename);
-      } catch (error) {
-        console.error(`Failed to delete segment ${seg.filename}:`, error);
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+        const age = Math.round((now - oldestSegment.timestamp) / 1000 / 60); // minutes
+        console.log(
+          `Deleted expired segment: ${oldestSegment.filename} (age: ${age} minutes)`
+        );
       }
-    });
+
+      this.db.prepare('DELETE FROM segments WHERE filename = ?').run(oldestSegment.filename);
+    } catch (error) {
+      console.error(`Failed to delete segment ${oldestSegment.filename}:`, error);
+    }
   }
 
   public getRecentSegments(limit = 20) {

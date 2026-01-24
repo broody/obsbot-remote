@@ -5,7 +5,9 @@ import * as http from 'http';
 import { cameraService } from './services/camera';
 import { ffmpegService } from './services/ffmpeg';
 import { gstreamerService } from './services/gstreamer';
+import { gstreamerSimpleService } from './services/gstreamer-simple';
 import { segmentManager } from './services/segmentManager';
+import { segmentRenamer } from './services/segmentRenamer';
 import { sttService } from './services/stt';
 import * as dotenv from 'dotenv';
 
@@ -18,7 +20,7 @@ const RTSP_URL = process.env.RTSP_URL || 'rtsp://localhost:8554/live';
 const CAPTURE_SERVICE = process.env.CAPTURE_SERVICE || 'ffmpeg';
 
 // Select capture service
-const captureService = CAPTURE_SERVICE === 'gstreamer' ? gstreamerService : ffmpegService;
+const captureService = CAPTURE_SERVICE === 'gstreamer' ? gstreamerSimpleService : ffmpegService;
 
 // Express app for REST API
 const app = express();
@@ -56,6 +58,38 @@ app.post('/api/command', async (req, res) => {
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
+});
+
+// GET /api/download/:filename - Download a segment file
+app.get('/api/download/:filename', (req, res) => {
+  const { filename } = req.params;
+  const path = require('path');
+  const fs = require('fs');
+
+  // Determine directory based on file extension
+  const ext = path.extname(filename);
+  let filePath: string;
+
+  if (ext === '.mp4') {
+    filePath = path.join(process.cwd(), 'recordings', 'segments', filename);
+  } else if (ext === '.wav') {
+    filePath = path.join(process.cwd(), 'recordings', 'audio', filename);
+  } else {
+    return res.status(400).json({ error: 'Invalid file type' });
+  }
+
+  // Check if file exists
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  // Set headers for download
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Type', ext === '.mp4' ? 'video/mp4' : 'audio/wav');
+
+  // Stream the file
+  const fileStream = fs.createReadStream(filePath);
+  fileStream.pipe(res);
 });
 
 // ==================== HTTP + WebSocket Server ====================
@@ -99,6 +133,9 @@ server.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`  REST API: http://0.0.0.0:${PORT}/api/status`);
   console.log(`  Gimbal WS: ws://0.0.0.0:${PORT}/ws/gimbal`);
 
+  // Start segment renamer
+  segmentRenamer.start();
+
   // Start capture after a short delay
   setTimeout(() => {
     console.log(`Using capture service: ${CAPTURE_SERVICE}`);
@@ -114,6 +151,7 @@ server.listen(Number(PORT), '0.0.0.0', () => {
 process.on('SIGINT', () => {
   console.log('Shutting down...');
   captureService.stopCapture();
+  segmentRenamer.stop();
   cameraService.close();
   process.exit(0);
 });
